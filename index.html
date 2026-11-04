@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#1a1612">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="description" content="Nómina Pro — Gestión de nómina multi-empresa, colillas PDF y respaldo local">
+  <title>Nómina Pro</title>
+  <link rel="icon" type="image/svg+xml" href="assets/icons/favicon.svg">
+  <link rel="apple-touch-icon" href="assets/icons/logo.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/styles.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" defer></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js" defer></script>
+  <script src="js/app.js" defer></script>
+</head>
+<body>
+  <header class="app-header">
+    <div class="app-header-inner">
+      <a class="brand" href="#" onclick="goHome(); return false;">
+        <img class="brand-logo" src="assets/icons/logo.svg" width="32" height="32" alt="">
+        Nómina Pro
+      </a>
+      <div class="header-actions">
+        <span id="file-status" class="file-status hidden" title="Archivo de trabajo vinculado"></span>
+        <button type="button" class="btn btn-primary btn-sm" id="btn-save-file" onclick="saveWorkingFile()" title="Guardar en el mismo archivo del dispositivo">
+          <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+          Guardar
+        </button>
+        <button type="button" class="btn btn-ghost btn-sm" onclick="openWorkingFile()" title="Abrir o vincular un JSON existente">
+          Abrir
+        </button>
+        <button type="button" class="btn btn-ghost btn-sm" onclick="exportData()" title="Descargar una copia con otro nombre">
+          Copia
+        </button>
+        <label class="btn btn-ghost btn-sm" style="cursor:pointer;" title="Importar JSON (reemplaza datos)">
+          Importar
+          <input type="file" id="importFile" accept=".json,application/json" onchange="importData(event)">
+        </label>
+      </div>
+    </div>
+  </header>
+
+  <main class="container">
+    <!-- HOME -->
+    <div id="page-home" class="page active">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title"><span class="icon">🏢</span> Empresas</div>
+          <button type="button" class="btn btn-success" onclick="showAddCompanyModal()">
+            <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+            Nueva empresa
+          </button>
+        </div>
+        <div id="companies-list" class="list"></div>
+        <div id="companies-empty" class="empty hidden">
+          <div class="empty-icon">🏢</div>
+          <p>No hay empresas registradas</p>
+          <p class="hint">Crea tu primera empresa para comenzar a gestionar la nómina</p>
+        </div>
+      </div>
+      <div class="help-card">
+        <h3>💡 Cómo funciona</h3>
+        <ul>
+          <li>Los datos también se guardan en este navegador automáticamente.</li>
+          <li><strong>Abrir</strong> (recomendado) vincula el JSON para que <strong>Guardar</strong> lo sobrescriba. Con <strong>Importar</strong> solo se carga; no se puede escribir encima por seguridad del navegador.</li>
+          <li>Si el navegador no permite sobrescribir, <strong>Guardar</strong> descarga con el <em>mismo nombre</em> — elige Reemplazar si te lo pide el sistema.</li>
+          <li><strong>Copia</strong> descarga un respaldo con otro nombre.</li>
+          <li>Las deducciones solo se aplican si las eliges. Si no, neto = bruto.</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- COMPANY -->
+    <div id="page-company" class="page">
+      <div class="back-link" onclick="goHome()" role="button" tabindex="0">
+        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+        Empresas
+      </div>
+      <div class="card">
+        <div class="company-hero">
+          <img id="company-logo" class="company-logo" style="display:none;" alt="Logo de la empresa">
+          <div id="company-logo-ph" class="company-logo-placeholder">?</div>
+          <div style="flex:1;min-width:10rem;">
+            <h2 id="company-name-title" style="font-size:var(--fs-xl);font-weight:800;letter-spacing:-0.02em;"></h2>
+            <p id="company-nit" style="font-size:var(--fs-sm);color:var(--text-muted);margin-top:0.2rem;"></p>
+            <p id="company-address" style="font-size:var(--fs-xs);color:var(--text-secondary);margin-top:0.15rem;"></p>
+          </div>
+          <div style="display:flex;gap:0.4rem;flex-wrap:wrap;">
+            <button type="button" class="btn btn-ghost btn-sm" onclick="editCompany()">
+              <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+              Editar
+            </button>
+            <button type="button" class="btn btn-danger btn-sm" onclick="deleteCompany()" title="Eliminar esta empresa">
+              Eliminar
+            </button>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title"><span class="icon">👥</span> Empleados</div>
+          <button type="button" class="btn btn-success" onclick="showAddEmployeeModal()">
+            <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+            Agregar empleado
+          </button>
+        </div>
+        <div id="employees-list" class="list"></div>
+        <div id="employees-empty" class="empty hidden">
+          <div class="empty-icon">👤</div>
+          <p>No hay empleados en esta empresa</p>
+          <p class="hint">Agrega el primero para empezar a reportar horas</p>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title"><span class="icon">📄</span> Colillas generadas</div>
+        </div>
+        <div id="stubs-list"></div>
+        <div id="stubs-empty" class="empty hidden">
+          <div class="empty-icon">📄</div>
+          <p>Aún no hay colillas</p>
+          <p class="hint">Entra a un empleado, registra horas y genera la colilla</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- EMPLOYEE -->
+    <div id="page-employee" class="page">
+      <div class="back-link" onclick="goCompany()" role="button" tabindex="0">
+        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+        Volver a la empresa
+      </div>
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <h2 id="emp-name-title" style="font-size:var(--fs-xl);font-weight:800;letter-spacing:-0.02em;"></h2>
+            <p id="emp-doc" style="font-size:var(--fs-sm);color:var(--text-muted);margin-top:0.15rem;"></p>
+            <p id="emp-position" style="font-size:var(--fs-xs);color:var(--text-secondary);"></p>
+          </div>
+          <div style="display:flex;gap:0.4rem;flex-wrap:wrap;">
+            <button type="button" class="btn btn-ghost btn-sm" onclick="editEmployee()">
+              <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+              Editar
+            </button>
+            <button type="button" class="btn btn-danger btn-sm" onclick="deleteEmployee()" title="Eliminar este empleado">
+              Eliminar
+            </button>
+          </div>
+        </div>
+        <div class="stats-row">
+          <div class="stat-box"><div class="stat-label">Valor hora</div><div class="stat-value" id="emp-rate">—</div></div>
+          <div class="stat-box"><div class="stat-label">Forma de pago</div><div class="stat-value" id="emp-payment">—</div></div>
+          <div class="stat-box"><div class="stat-label">Teléfono</div><div class="stat-value" id="emp-phone">—</div></div>
+          <div class="stat-box"><div class="stat-label">Recargos</div><div class="stat-value" id="emp-surcharges" style="font-size:var(--fs-xs);">—</div></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title" style="margin-bottom:1rem;"><span class="icon">⏱️</span> Reporte de horas — Quincena</div>
+        <div class="quincena-bar">
+          <div class="form-group" style="margin:0;">
+            <label class="form-label" for="quincena-year">Año</label>
+            <select id="quincena-year" class="form-select" onchange="renderHoursGrid()"></select>
+          </div>
+          <div class="form-group" style="margin:0;">
+            <label class="form-label" for="quincena-month">Mes</label>
+            <select id="quincena-month" class="form-select" onchange="renderHoursGrid()"></select>
+          </div>
+          <div class="form-group" style="margin:0;">
+            <label class="form-label" for="quincena-half">Quincena</label>
+            <select id="quincena-half" class="form-select" onchange="renderHoursGrid()">
+              <option value="1">1ª (días 1–15)</option>
+              <option value="2">2ª (días 16–fin)</option>
+            </select>
+          </div>
+        </div>
+        <div id="surcharge-hint" class="alert alert-warning hidden">
+          <span class="alert-icon">⚡</span>
+          <div>Marca <strong>Nocturno</strong> o <strong>Dom/Fest</strong> solo donde aplique. Sin recargos activados en el empleado, todo se paga al valor base.</div>
+        </div>
+        <div id="hours-grid" class="hours-grid"></div>
+        <div class="summary" id="hours-summary">
+          <div class="summary-row"><span class="label">Total horas</span><span class="value" id="sum-hours">0 h</span></div>
+          <div class="summary-row"><span class="label">Valor bruto</span><span class="value" id="sum-gross">$0</span></div>
+        </div>
+        <div style="margin-top:1.35rem;">
+          <div class="card-title" style="margin-bottom:0.75rem;"><span class="icon">➖</span> Deducciones de esta colilla</div>
+          <div class="alert alert-success">
+            <span class="alert-icon">✓</span>
+            <div>Solo se descuentan las que marques con valor mayor a cero. Si no marcas ninguna, neto = bruto.</div>
+          </div>
+          <div id="deductions-list">
+            <div class="deduction-row">
+              <input type="checkbox" id="ded-salud" onchange="updateSummary()">
+              <label for="ded-salud" style="font-size:var(--fs-sm);font-weight:500;cursor:pointer;">Aporte salud (trabajador)</label>
+              <input type="number" id="ded-salud-val" min="0" step="100" inputmode="numeric" placeholder="0" oninput="updateSummary()">
+            </div>
+            <div class="deduction-row">
+              <input type="checkbox" id="ded-pension" onchange="updateSummary()">
+              <label for="ded-pension" style="font-size:var(--fs-sm);font-weight:500;cursor:pointer;">Aporte pensión (trabajador)</label>
+              <input type="number" id="ded-pension-val" min="0" step="100" inputmode="numeric" placeholder="0" oninput="updateSummary()">
+            </div>
+            <div class="deduction-row">
+              <input type="checkbox" id="ded-retefuente" onchange="updateSummary()">
+              <label for="ded-retefuente" style="font-size:var(--fs-sm);font-weight:500;cursor:pointer;">Retención en la fuente</label>
+              <input type="number" id="ded-retefuente-val" min="0" step="100" inputmode="numeric" placeholder="0" oninput="updateSummary()">
+            </div>
+            <div class="deduction-row">
+              <input type="checkbox" id="ded-otra1" onchange="updateSummary()">
+              <input type="text" id="ded-otra1-name" placeholder="Nombre de otra deducción" autocomplete="off">
+              <input type="number" id="ded-otra1-val" min="0" step="100" inputmode="numeric" placeholder="0" oninput="updateSummary()">
+            </div>
+            <div class="deduction-row">
+              <input type="checkbox" id="ded-otra2" onchange="updateSummary()">
+              <input type="text" id="ded-otra2-name" placeholder="Nombre de otra deducción" autocomplete="off">
+              <input type="number" id="ded-otra2-val" min="0" step="100" inputmode="numeric" placeholder="0" oninput="updateSummary()">
+            </div>
+          </div>
+        </div>
+        <div class="summary summary-green" style="margin-top:1rem;">
+          <div class="summary-row"><span class="label">Total deducciones</span><span class="value" id="sum-deductions">$0</span></div>
+          <div class="summary-row summary-total"><span class="label">Neto a pagar</span><span class="value" id="sum-neto">$0</span></div>
+        </div>
+        <div class="actions-bar">
+          <button type="button" class="btn btn-primary" onclick="saveHours()">
+            <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+            Guardar horas
+          </button>
+          <button type="button" class="btn btn-success" onclick="generateStub()">
+            <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+            Generar colilla PDF
+          </button>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- MODAL EMPRESA -->
+  <div id="modal-company" class="modal-overlay hidden" onclick="if(event.target===this)closeModal('modal-company')">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-company-title">
+      <div class="modal-header">
+        <h3 id="modal-company-title">Nueva empresa</h3>
+        <button type="button" class="modal-close" onclick="closeModal('modal-company')" aria-label="Cerrar">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label" for="c-name">Nombre / Razón social *</label>
+          <input class="form-input" type="text" id="c-name" placeholder="Ej: Constructora ABC S.A.S." autocomplete="organization">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="c-nit">NIT *</label>
+          <input class="form-input" type="text" id="c-nit" placeholder="Ej: 900.123.456-7" inputmode="numeric">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="c-address">Dirección</label>
+          <input class="form-input" type="text" id="c-address" placeholder="Calle, ciudad" autocomplete="street-address">
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label" for="c-phone">Teléfono</label>
+            <input class="form-input" type="tel" id="c-phone" autocomplete="tel">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="c-email">Email</label>
+            <input class="form-input" type="email" id="c-email" autocomplete="email">
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="c-rep">Representante legal</label>
+          <input class="form-input" type="text" id="c-rep">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="c-legal">Información legal adicional</label>
+          <textarea class="form-textarea" id="c-legal" rows="2" placeholder="Cámara de comercio, etc."></textarea>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Logo de la empresa</label>
+          <label class="file-label">
+            📷 Seleccionar imagen
+            <input type="file" id="c-logo" accept="image/*" onchange="previewLogo(event)">
+          </label>
+          <img id="c-logo-preview" class="logo-preview" style="display:none;" alt="Vista previa del logo">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-ghost" onclick="closeModal('modal-company')">Cancelar</button>
+        <button type="button" class="btn btn-success" onclick="saveCompany()">Guardar empresa</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL EMPLEADO -->
+  <div id="modal-employee" class="modal-overlay hidden" onclick="if(event.target===this)closeModal('modal-employee')">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-employee-title">
+      <div class="modal-header">
+        <h3 id="modal-employee-title">Nuevo empleado</h3>
+        <button type="button" class="modal-close" onclick="closeModal('modal-employee')" aria-label="Cerrar">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="section-label">Datos personales</div>
+        <div class="form-group">
+          <label class="form-label" for="e-name">Nombre completo *</label>
+          <input class="form-input" type="text" id="e-name" placeholder="Nombres y apellidos" autocomplete="name">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="e-doc">Documento (Cédula) *</label>
+          <input class="form-input" type="text" id="e-doc" placeholder="Número de documento" inputmode="numeric">
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label" for="e-position">Cargo</label>
+            <input class="form-input" type="text" id="e-position">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="e-rate">Valor hora base (COP) *</label>
+            <input class="form-input" type="number" id="e-rate" min="0" step="100" inputmode="numeric" placeholder="8000">
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="e-phone">Teléfono</label>
+          <input class="form-input" type="tel" id="e-phone" autocomplete="tel">
+        </div>
+        <div class="section-label">Forma de pago</div>
+        <div class="form-group">
+          <label class="form-label" for="e-payment">Método</label>
+          <select class="form-select" id="e-payment" onchange="toggleBankField()">
+            <option value="efectivo">💵 Efectivo</option>
+            <option value="banco">🏦 Consignación bancaria</option>
+          </select>
+        </div>
+        <div class="form-group" id="bank-field" style="display:none;">
+          <label class="form-label" for="e-bank">Cuenta bancaria / Entidad</label>
+          <input class="form-input" type="text" id="e-bank" placeholder="Ej: Bancolombia 123-456789-01">
+        </div>
+        <div class="section-label">Recargos opcionales</div>
+        <div class="alert alert-info" style="margin-bottom:0.75rem;">
+          <span class="alert-icon">ℹ️</span>
+          <div>Si no activas estos recargos, <strong>todas las horas se pagan al valor base</strong>.</div>
+        </div>
+        <label class="form-check">
+          <input type="checkbox" id="e-night" onchange="toggleSurchargeFields()">
+          <span>Activar recargo nocturno</span>
+        </label>
+        <div class="form-group" id="night-percent-field" style="display:none;">
+          <label class="form-label" for="e-night-pct">Porcentaje recargo nocturno (%)</label>
+          <input class="form-input" type="number" id="e-night-pct" min="0" max="200" value="35" step="1" inputmode="numeric">
+        </div>
+        <label class="form-check">
+          <input type="checkbox" id="e-holiday" onchange="toggleSurchargeFields()">
+          <span>Activar recargo dominical / festivo</span>
+        </label>
+        <div class="form-group" id="holiday-percent-field" style="display:none;">
+          <label class="form-label" for="e-holiday-pct">Porcentaje recargo dominical/festivo (%)</label>
+          <input class="form-input" type="number" id="e-holiday-pct" min="0" max="200" value="75" step="1" inputmode="numeric">
+        </div>
+        <div class="section-label">Otros</div>
+        <div class="form-group">
+          <label class="form-label" for="e-notes">Observaciones</label>
+          <textarea class="form-textarea" id="e-notes" rows="2"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-ghost" onclick="closeModal('modal-employee')">Cancelar</button>
+        <button type="button" class="btn btn-success" onclick="saveEmployee()">Guardar empleado</button>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- MODAL EXPORTAR -->
+  <div id="modal-export" class="modal-overlay hidden" onclick="if(event.target===this)closeModal('modal-export')">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-export-title">
+      <div class="modal-header">
+        <h3 id="modal-export-title">Exportar datos</h3>
+        <button type="button" class="modal-close" onclick="closeModal('modal-export')" aria-label="Cerrar">✕</button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size:var(--fs-sm);color:var(--text-secondary);margin-bottom:0.85rem;">
+          Elige un nombre para diferenciar este respaldo de otros (por empresa, mes, etc.).
+        </p>
+        <div class="form-group">
+          <label class="form-label" for="export-filename">Nombre del archivo</label>
+          <input class="form-input" type="text" id="export-filename" placeholder="ej: nomina_constructora_oct2026" autocomplete="off" onkeydown="if(event.key==='Enter'){event.preventDefault();confirmExport();}">
+        </div>
+        <p style="font-size:var(--fs-xs);color:var(--text-muted);">Se añadirá .json automáticamente si no lo escribes.</p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-ghost" onclick="closeModal('modal-export')">Cancelar</button>
+        <button type="button" class="btn btn-success" onclick="confirmExport()">Descargar</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast-container" id="toast-container" aria-live="polite"></div>
+</body>
+</html>
