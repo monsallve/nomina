@@ -644,14 +644,60 @@ function getQuincenaKey() {
   return `${y}-${m}-${h}`;
 }
 
+/**
+ * Mes seleccionado = mes del corte y del pago.
+ * 1ª: 29 (mes ant.) → 13 (mes actual) · corte 13 · pago 14
+ * 2ª: 14 → 28 (mes actual) · corte 28 · pago 29
+ */
 function getDaysInQuincena() {
   const y = +document.getElementById('quincena-year').value;
   const m = +document.getElementById('quincena-month').value;
   const half = document.getElementById('quincena-half').value;
-  const last = new Date(y, m, 0).getDate();
-  return half === '1'
-    ? Array.from({ length: 15 }, (_, i) => i + 1)
-    : Array.from({ length: last - 15 }, (_, i) => i + 16);
+  const pad = (n) => String(n).padStart(2, '0');
+  const make = (yy, mm, dd) => {
+    const date = new Date(yy, mm - 1, dd);
+    if (date.getFullYear() !== yy || date.getMonth() !== mm - 1 || date.getDate() !== dd) return null;
+    return {
+      key: `${yy}-${pad(mm)}-${pad(dd)}`,
+      day: dd,
+      month: mm,
+      year: yy,
+      label: `${pad(dd)}/${pad(mm)}`,
+      dow: date.getDay()
+    };
+  };
+  const out = [];
+  if (half === '1') {
+    let py = y;
+    let pm = m - 1;
+    if (pm < 1) {
+      pm = 12;
+      py = y - 1;
+    }
+    const lastPrev = new Date(py, pm, 0).getDate();
+    for (let d = 29; d <= lastPrev; d++) {
+      const row = make(py, pm, d);
+      if (row) out.push(row);
+    }
+    for (let d = 1; d <= 13; d++) {
+      const row = make(y, m, d);
+      if (row) out.push(row);
+    }
+  } else {
+    for (let d = 14; d <= 28; d++) {
+      const row = make(y, m, d);
+      if (row) out.push(row);
+    }
+  }
+  return out;
+}
+
+function lookupDayEntry(daysData, dayInfo) {
+  if (!daysData || !dayInfo) return {};
+  if (daysData[dayInfo.key] != null) return daysData[dayInfo.key];
+  if (daysData[dayInfo.day] != null) return daysData[dayInfo.day];
+  if (daysData[String(dayInfo.day)] != null) return daysData[String(dayInfo.day)];
+  return {};
 }
 
 function calcDayValue(hours, isNight, isHoliday, emp) {
@@ -671,37 +717,43 @@ function renderHoursGrid() {
   const days = getDaysInQuincena();
   const grid = document.getElementById('hours-grid');
   grid.innerHTML = '';
-  const y = +document.getElementById('quincena-year').value;
-  const m = +document.getElementById('quincena-month').value;
   const showNight = !!e.applyNight;
   const showHoliday = !!e.applyHoliday;
   document.getElementById('surcharge-hint').classList.toggle('hidden', !(showNight || showHoliday));
 
-  days.forEach((d) => {
-    const date = new Date(y, m - 1, d);
-    const dow = date.getDay();
+  days.forEach((di) => {
+    const dow = di.dow;
     const isWeekend = dow === 0 || dow === 6;
-    const dd = daysData[d] || {};
+    const dd = lookupDayEntry(daysData, di);
     const hoursVal =
-      typeof dd === 'object' && dd.hours != null ? dd.hours : typeof dd === 'number' ? dd : '';
-    const nightVal = typeof dd === 'object' ? !!dd.night : false;
+      typeof dd === 'object' && dd != null && dd.hours != null
+        ? dd.hours
+        : typeof dd === 'number'
+          ? dd
+          : '';
+    const nightVal = typeof dd === 'object' && dd ? !!dd.night : false;
     const holVal =
-      typeof dd === 'object' ? (dd.holiday != null ? !!dd.holiday : dow === 0) : dow === 0;
+      typeof dd === 'object' && dd
+        ? dd.holiday != null
+          ? !!dd.holiday
+          : dow === 0
+        : dow === 0;
     const cell = document.createElement('div');
     cell.className = 'day-cell' + (isWeekend ? ' weekend' : '');
+    const dk = di.key;
     let checks = '';
     if (showNight || showHoliday) {
       checks = '<div class="day-checks">';
       if (showNight)
-        checks += `<label><input type="checkbox" data-day="${d}" data-type="night" ${nightVal ? 'checked' : ''} onchange="updateSummary()"> Nocturno</label>`;
+        checks += `<label><input type="checkbox" data-day="${dk}" data-type="night" ${nightVal ? 'checked' : ''} onchange="updateSummary()"> Nocturno</label>`;
       if (showHoliday)
-        checks += `<label><input type="checkbox" data-day="${d}" data-type="holiday" ${holVal ? 'checked' : ''} onchange="updateSummary()"> Dom/Fest</label>`;
+        checks += `<label><input type="checkbox" data-day="${dk}" data-type="holiday" ${holVal ? 'checked' : ''} onchange="updateSummary()"> Dom/Fest</label>`;
       checks += '</div>';
     }
     cell.innerHTML = `
-      <div class="day-num">Día ${d}</div>
+      <div class="day-num">${di.label}</div>
       <div class="day-name">${DAY_SHORT[dow]}</div>
-      <input type="number" min="0" max="24" step="0.5" inputmode="decimal" data-day="${d}" data-type="hours" value="${hoursVal}" placeholder="0" oninput="updateSummary()">
+      <input type="number" min="0" max="24" step="0.5" inputmode="decimal" data-day="${dk}" data-type="hours" value="${hoursVal}" placeholder="0" oninput="updateSummary()">
       ${checks}`;
     grid.appendChild(cell);
   });
@@ -744,8 +796,12 @@ function collectDayData() {
     let hours = parseFloat(inp.value);
     if (!Number.isFinite(hours) || hours < 0) hours = 0;
     if (hours > 24) hours = 24;
-    const nightEl = document.querySelector(`#hours-grid input[data-day="${d}"][data-type="night"]`);
-    const holEl = document.querySelector(`#hours-grid input[data-day="${d}"][data-type="holiday"]`);
+    const nightEl = document.querySelector(
+      '#hours-grid input[data-day="' + d + '"][data-type="night"]'
+    );
+    const holEl = document.querySelector(
+      '#hours-grid input[data-day="' + d + '"][data-type="holiday"]'
+    );
     const isNight = nightEl ? nightEl.checked : false;
     const isHoliday = holEl ? holEl.checked : false;
     if (hours <= 0 && !isNight && !isHoliday) return;
@@ -853,7 +909,16 @@ function getPeriodLabel() {
   const y = document.getElementById('quincena-year').value;
   const m = +document.getElementById('quincena-month').value;
   const half = document.getElementById('quincena-half').value;
-  return `${half === '1' ? '1ª' : '2ª'} quincena de ${MONTHS[m - 1]} ${y}`;
+  if (half === '1') {
+    let pm = m - 1;
+    let py = +y;
+    if (pm < 1) {
+      pm = 12;
+      py = +y - 1;
+    }
+    return `29 ${MONTHS[pm - 1]} ${py} → 13 ${MONTHS[m - 1]} ${y} (pago 14)`;
+  }
+  return `14 → 28 ${MONTHS[m - 1]} ${y} (pago 29)`;
 }
 
 /** Corte 13 / pago 14 (1ª) · Corte 28 / pago 29 (2ª). El pago es de la quincena cortada. */
@@ -989,9 +1054,15 @@ function buildPdf(c, e, periodLabel, hoursData, genDate, dateInfo, logoFit) {
   y += 3;
 
   const daysObj = hoursData.days || {};
-  const dayKeys = Object.keys(daysObj)
-    .map(Number)
-    .sort((a, b) => a - b);
+  const dayKeys = Object.keys(daysObj).sort((a, b) => {
+    // ISO YYYY-MM-DD first; numeric legacy second
+    const na = /^\d{4}-\d{2}-\d{2}$/.test(a);
+    const nb = /^\d{4}-\d{2}-\d{2}$/.test(b);
+    if (na && nb) return a.localeCompare(b);
+    if (na) return -1;
+    if (nb) return 1;
+    return Number(a) - Number(b);
+  });
   const body = dayKeys.map((d) => {
     const info = daysObj[d];
     const h = typeof info === 'object' ? info.hours || 0 : info || 0;
@@ -1002,13 +1073,18 @@ function buildPdf(c, e, periodLabel, hoursData, genDate, dateInfo, logoFit) {
         ? info.value
         : calcDayValue(h, night, holiday, e);
     const flags = [night ? 'N' : '', holiday ? 'D/F' : ''].filter(Boolean).join('+') || '—';
-    return [String(d), h.toFixed(1), flags, money(val)];
+    let label = String(d);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(d)) {
+      const p = d.split('-');
+      label = p[2] + '/' + p[1];
+    }
+    return [label, h.toFixed(1), flags, money(val)];
   });
   if (!body.length) body.push(['—', '0', '—', money(0)]);
 
   doc.autoTable({
     startY: y,
-    head: [['Día', 'Horas', 'Recargo', 'Valor']],
+    head: [['Fecha', 'Horas', 'Recargo', 'Valor']],
     body,
     theme: 'striped',
     headStyles: { fillColor: [30, 58, 110], fontSize: 8, cellPadding: 2.5 },
@@ -1062,7 +1138,7 @@ function buildPdf(c, e, periodLabel, hoursData, genDate, dateInfo, logoFit) {
   if (c.rep) lines.push('Representante legal: ' + c.rep);
   if (c.legal) lines.push(c.legal);
   if (!dedList.length) lines.push('No se aplicaron deducciones en este periodo.');
-  lines.push('Comprobante de pago de nómina. Cortes: días 13 y 28. Pagos: días 14 y 29.');
+  lines.push('Periodos: 29–13 (pago 14) y 14–28 (pago 29). Cortes: 13 y 28.');
   doc.text(lines, 14, y, { maxWidth: pageW - 28 });
   return doc;
 }
