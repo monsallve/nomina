@@ -334,7 +334,10 @@ function renderCompanyPage() {
         <td>${esc(s.periodLabel || '')}</td>
         <td>${esc(s.date || '')}</td>
         <td style="font-weight:700;color:#b8c98a;">${money(s.total)}</td>
-        <td><button type="button" class="btn btn-soft btn-sm" onclick="event.stopPropagation();downloadStub('${s.id}')">⬇ PDF</button></td>`;
+        <td style="white-space:nowrap;">
+          <button type="button" class="btn btn-soft btn-sm" onclick="event.stopPropagation();downloadStub('${s.id}')">⬇ PDF</button>
+          <button type="button" class="btn btn-danger btn-sm" onclick="event.stopPropagation();deleteStub('${s.id}')" title="Eliminar colilla">Eliminar</button>
+        </td>`;
       tb.appendChild(tr);
     });
     wrap.appendChild(table);
@@ -853,29 +856,85 @@ function getPeriodLabel() {
   return `${half === '1' ? '1ª' : '2ª'} quincena de ${MONTHS[m - 1]} ${y}`;
 }
 
-function buildPdf(c, e, periodLabel, hoursData, genDate) {
+/** Corte 13 / pago 14 (1ª) · Corte 28 / pago 29 (2ª). El pago es de la quincena cortada. */
+function getCutoffAndPayDates(year, month, half) {
+  const y = +year;
+  const m = +month;
+  const h = String(half);
+  const pad = (n) => String(n).padStart(2, '0');
+  if (h === '1') {
+    return { cutoff: `${pad(13)}/${pad(m)}/${y}`, pay: `${pad(14)}/${pad(m)}/${y}`, cutoffDay: 13, payDay: 14 };
+  }
+  return { cutoff: `${pad(28)}/${pad(m)}/${y}`, pay: `${pad(29)}/${pad(m)}/${y}`, cutoffDay: 28, payDay: 29 };
+}
+
+function getCurrentCutoffAndPay() {
+  const y = document.getElementById('quincena-year').value;
+  const m = document.getElementById('quincena-month').value;
+  const h = document.getElementById('quincena-half').value;
+  return getCutoffAndPayDates(y, m, h);
+}
+
+/** Mide el logo y calcula tamaño en mm respetando proporción (máx. caja). */
+function measureLogoFit(dataUrl, maxWmm, maxHmm) {
+  return new Promise((resolve) => {
+    if (!dataUrl) {
+      resolve(null);
+      return;
+    }
+    const img = new Image();
+    img.onload = () => {
+      const nw = img.naturalWidth || 1;
+      const nh = img.naturalHeight || 1;
+      const scale = Math.min(maxWmm / nw, maxHmm / nh);
+      let format = 'PNG';
+      if (/^data:image\/jpeg/i.test(dataUrl) || /^data:image\/jpg/i.test(dataUrl)) format = 'JPEG';
+      else if (/^data:image\/webp/i.test(dataUrl)) format = 'WEBP';
+      else if (/^data:image\/png/i.test(dataUrl)) format = 'PNG';
+      resolve({
+        w: Math.max(8, nw * scale),
+        h: Math.max(6, nh * scale),
+        format
+      });
+    };
+    img.onerror = () => resolve(null);
+    img.src = dataUrl;
+  });
+}
+
+function buildPdf(c, e, periodLabel, hoursData, genDate, dateInfo, logoFit) {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
   const pageW = doc.internal.pageSize.getWidth();
   let y = 14;
 
-  if (c.logo) {
+  const hasLogo = !!(c.logo && logoFit && logoFit.w && logoFit.h);
+  const logoW = hasLogo ? logoFit.w : 0;
+  const logoH = hasLogo ? logoFit.h : 0;
+  const textX = hasLogo ? 14 + logoW + 4 : 14;
+  const headerH = hasLogo ? Math.max(logoH, 16) : 16;
+
+  if (hasLogo) {
     try {
-      doc.addImage(c.logo, 'JPEG', 14, y, 26, 15);
+      doc.addImage(c.logo, logoFit.format || 'PNG', 14, y, logoW, logoH);
     } catch {
       try {
-        doc.addImage(c.logo, 'PNG', 14, y, 26, 15);
-      } catch (_) {}
+        doc.addImage(c.logo, 'PNG', 14, y, logoW, logoH);
+      } catch {
+        try {
+          doc.addImage(c.logo, 'JPEG', 14, y, logoW, logoH);
+        } catch (_) {}
+      }
     }
   }
   doc.setFontSize(13);
   doc.setFont('helvetica', 'bold');
-  doc.text(c.name || 'Empresa', c.logo ? 44 : 14, y + 5);
+  doc.text(c.name || 'Empresa', textX, y + 5);
   doc.setFontSize(8.5);
   doc.setFont('helvetica', 'normal');
-  doc.text('NIT: ' + (c.nit || ''), c.logo ? 44 : 14, y + 10);
-  if (c.address) doc.text(c.address, c.logo ? 44 : 14, y + 14);
-  y += 20;
+  doc.text('NIT: ' + (c.nit || ''), textX, y + 10);
+  if (c.address) doc.text(c.address, textX, y + 14, { maxWidth: pageW - textX - 14 });
+  y += headerH + 4;
 
   doc.setFillColor(30, 58, 110);
   doc.roundedRect(14, y, pageW - 28, 8, 1.5, 1.5, 'F');
@@ -886,11 +945,24 @@ function buildPdf(c, e, periodLabel, hoursData, genDate) {
   doc.setTextColor(0);
   y += 12;
 
+  const di = dateInfo || {};
   doc.setFontSize(8.5);
   doc.setFont('helvetica', 'bold');
   doc.text('Periodo: ' + periodLabel, 14, y);
-  doc.text('Fecha: ' + genDate, pageW - 14, y, { align: 'right' });
-  y += 7;
+  y += 5;
+  doc.setFont('helvetica', 'normal');
+  doc.text('Fecha de corte: ' + (di.cutoff || '—'), 14, y);
+  doc.text('Fecha de pago: ' + (di.pay || '—'), pageW / 2, y);
+  y += 5;
+  doc.setFontSize(7.5);
+  doc.setTextColor(90);
+  doc.text(
+    'La fecha de pago corresponde a la quincena con el corte indicado (pago al día siguiente del corte).',
+    14,
+    y
+  );
+  doc.setTextColor(0);
+  y += 6;
 
   doc.setDrawColor(220);
   doc.setFillColor(248, 250, 252);
@@ -989,13 +1061,13 @@ function buildPdf(c, e, periodLabel, hoursData, genDate) {
   const lines = [];
   if (c.rep) lines.push('Representante legal: ' + c.rep);
   if (c.legal) lines.push(c.legal);
-  lines.push('Comprobante de pago conforme al Art. 134 del Código Sustantivo del Trabajo.');
   if (!dedList.length) lines.push('No se aplicaron deducciones en este periodo.');
+  lines.push('Comprobante de pago de nómina. Cortes: días 13 y 28. Pagos: días 14 y 29.');
   doc.text(lines, 14, y, { maxWidth: pageW - 28 });
   return doc;
 }
 
-function generateStub() {
+async function generateStub() {
   const c = getCompany();
   const e = getEmployee();
   if (!c || !e) return;
@@ -1024,7 +1096,9 @@ function generateStub() {
     month: 'long',
     day: 'numeric'
   });
-  const doc = buildPdf(c, e, periodLabel, hd, genDate);
+  const dateInfo = getCurrentCutoffAndPay();
+  const logoFit = await measureLogoFit(c.logo, 32, 18);
+  const doc = buildPdf(c, e, periodLabel, hd, genDate, dateInfo, logoFit);
 
   if (!c.stubs) c.stubs = [];
   const idx = c.stubs.findIndex((s) => s.employeeId === e.id && s.periodKey === key);
@@ -1034,6 +1108,10 @@ function generateStub() {
     periodKey: key,
     periodLabel,
     date: new Date().toISOString().slice(0, 10),
+    cutoff: dateInfo.cutoff,
+    pay: dateInfo.pay,
+    cutoffDay: dateInfo.cutoffDay,
+    payDay: dateInfo.payDay,
     total: hd.neto,
     totalHours: hd.totalHours,
     gross: hd.gross,
@@ -1049,7 +1127,24 @@ function generateStub() {
   toast('Colilla generada y descargada', 'success');
 }
 
-function downloadStub(stubId) {
+function deleteStub(stubId) {
+  const c = getCompany();
+  if (!c) return;
+  const stub = (c.stubs || []).find((s) => s.id === stubId);
+  if (!stub) return;
+  const emp = (c.employees || []).find((e) => e.id === stub.employeeId);
+  const name = emp ? emp.name : 'empleado';
+  const period = stub.periodLabel || stub.periodKey || '';
+  if (!confirm('¿Eliminar la colilla de «' + name + '»\n' + period + '?\n\nEsta acción no se puede deshacer.')) {
+    return;
+  }
+  c.stubs = (c.stubs || []).filter((s) => s.id !== stubId);
+  saveData();
+  renderCompanyPage();
+  toast('Colilla eliminada', 'success');
+}
+
+async function downloadStub(stubId) {
   const c = getCompany();
   if (!c) return;
   if (!window.jspdf || !window.jspdf.jsPDF) {
@@ -1071,7 +1166,18 @@ function downloadStub(stubId) {
     dedTotal: stub.dedTotal || 0,
     neto: stub.total
   };
-  const doc = buildPdf(c, e, stub.periodLabel || '', hd, stub.date || '');
+  const dateInfo = {
+    cutoff: stub.cutoff,
+    pay: stub.pay,
+    cutoffDay: stub.cutoffDay,
+    payDay: stub.payDay
+  };
+  if (!dateInfo.cutoff && stub.periodKey) {
+    const parts = String(stub.periodKey).split('-');
+    if (parts.length >= 3) Object.assign(dateInfo, getCutoffAndPayDates(parts[0], parts[1], parts[2]));
+  }
+  const logoFit = await measureLogoFit(c.logo, 32, 18);
+  const doc = buildPdf(c, e, stub.periodLabel || '', hd, stub.date || '', dateInfo, logoFit);
   doc.save(
     `Colilla_${e.name.replace(/\s+/g, '_')}_${(stub.periodLabel || '').replace(/\s+/g, '_')}.pdf`
   );
